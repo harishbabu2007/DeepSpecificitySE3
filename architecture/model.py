@@ -49,8 +49,8 @@ class DeepSpecificitySE3(nn.Module):
         coords,
         mask,
         edges,
-        adj_mat,
         num_dna_nodes,
+        adj_mat=None,
     ):
         x = self.encoder(
             node_type=node_type,
@@ -64,7 +64,7 @@ class DeepSpecificitySE3(nn.Module):
             coors=coords,
             mask=mask,
             edges=edges,
-            adj_mat=adj_mat,
+            # adj_mat=adj_mat,
         )
 
         x = self.dropout(x)
