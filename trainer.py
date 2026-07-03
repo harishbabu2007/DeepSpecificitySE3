@@ -28,7 +28,7 @@ EPOCHS = 200
 LR = 3e-4
 WEIGHT_DECAY = 1e-4
 
-NUM_WORKERS = 4
+NUM_WORKERS = 0
 GRAD_CLIP = 5.0
 
 SEED = 42
@@ -131,7 +131,6 @@ def train_one_epoch(
         num_bp = batch["num_base_pairs"][0].item()
 
         # Forward
-
         logits = model(
             coords=coords,
             node_type=node_type,
@@ -146,11 +145,6 @@ def train_one_epoch(
 
         assert logits.shape[1] == num_dna_nodes[0].item()
         assert logits.shape[2] == 4
-
-        print(logits.shape)
-        print(pwm_forward.shape)
-        print(pwm_mask_forward.shape)
-        print(num_bp)
 
         # Split forward / reverse strand
 

@@ -16,7 +16,7 @@ class FeatureEncoder(nn.Module):
 
         self.node_type_embed = nn.Embedding(2, 8)
 
-        self.interface_proj = nn.Linear(2, 8)
+        self.interface_proj = nn.Embedding(2, 8)
 
         self.dssr_proj = nn.Sequential(
             nn.Linear(dssr_dim, 32), nn.GELU(), nn.Linear(32, 32)

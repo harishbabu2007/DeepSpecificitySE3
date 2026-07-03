@@ -444,7 +444,7 @@ for pdb_file in sorted(os.listdir(PDB_DIR)):
                 else:
                     edge_type[3] = 1.0          # Protein → Protein
 
-                feat = np.concatenate([rbf, local_vec, rot_feat])
+                feat = np.concatenate([rbf, local_vec, rot_feat, edge_type])
 
                 edge_src.append(i)
                 edge_dst.append(j)
@@ -471,7 +471,9 @@ for pdb_file in sorted(os.listdir(PDB_DIR)):
                 else:
                     edge_type_rev[3] = 1.0
 
-                feat_rev = np.concatenate([rbf, local_vec_rev, rot_feat_rev])
+                feat_rev = np.concatenate(
+                    [rbf, local_vec_rev, rot_feat_rev, edge_type_rev]
+                )
 
                 edge_src.append(j)
                 edge_dst.append(i)

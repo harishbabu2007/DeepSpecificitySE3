@@ -50,7 +50,6 @@ class DeepSpecificitySE3(nn.Module):
         mask,
         edges,
         adj_mat,
-        dna_mask,
         num_dna_nodes,
     ):
         x = self.encoder(
