@@ -80,7 +80,7 @@ model = DeepSpecificitySE3().to(DEVICE)
 
 # for name, p in model.se3.named_parameters():
 #     print(f"{name:60s} {p.numel():,}")
-model = torch.compile(model, dynamic=True)
+# model = torch.compile(model, dynamic=True)
 
 optimizer = torch.optim.AdamW(
     model.parameters(),

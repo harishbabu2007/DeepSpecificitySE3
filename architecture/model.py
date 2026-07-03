@@ -18,7 +18,7 @@ class DeepSpecificitySE3(nn.Module):
 
         self.se3 = SE3Transformer(
             dim=self.hidden_dim,
-            depth=1,
+            depth=2,
             heads=1,
             dim_head=16,
             input_degrees=1,
