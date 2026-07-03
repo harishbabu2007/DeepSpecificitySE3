@@ -555,6 +555,8 @@ for pdb_file in sorted(os.listdir(PDB_DIR)):
 
         data.pwm_present = pwm_present
 
+        assert edge_index.shape[1] == len(nodes) * K_NEIGHBORS * 2
+        
         torch.save(data, out_file)
 
     except Exception as e:
