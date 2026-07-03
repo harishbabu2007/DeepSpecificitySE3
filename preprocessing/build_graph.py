@@ -404,18 +404,14 @@ for pdb_file in sorted(os.listdir(PDB_DIR)):
         tree = cKDTree(pos)
         k = min(K_NEIGHBORS+1, len(nodes))
         dists_knn, idx_knn = tree.query(pos, k=k)
-        radius_neighbours = tree.query_ball_point(pos, r=RADIUS)
+        # radius_neighbours = tree.query_ball_point(pos, r=RADIUS)
 
         edge_src, edge_dst = [], []
         edge_attr = []
 
         for i in range(len(nodes)):
 
-            nbrs = set(idx_knn[i][1:])
-
-            for j in radius_neighbours[i]:
-                if j!=i:
-                    nbrs.add(j)
+            nbrs = idx_knn[i][1:]
 
             for j in nbrs:
 
@@ -521,6 +517,14 @@ for pdb_file in sorted(os.listdir(PDB_DIR)):
             jaspar_indices,
         )
 
+        expected = len(pwm_forward) * 2
+
+        if len(dna_nodes) != expected:
+            print(f"Skipping {pdb_file}: DNA/PWM mismatch")
+            continue
+
+        assert len(dna_nodes) == 2 * len(pwm_forward)
+
         data = Data(
             pos=pos_t,
             frame=R_t,
@@ -537,7 +541,7 @@ for pdb_file in sorted(os.listdir(PDB_DIR)):
         data.chain = chains
         data.resnum = torch.tensor(resnums, dtype=torch.long)
         data.num_dna_nodes = len(dna_nodes)
-        data.num_base_pairs = len(proximity_mask)
+        data.num_base_pairs = len(pwm_forward)
         data.num_protein_nodes = len(protein_nodes)
 
         data.pwm_forward = torch.tensor(pwm_forward, dtype=torch.float32)
