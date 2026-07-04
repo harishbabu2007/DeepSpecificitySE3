@@ -378,6 +378,11 @@ for pdb_file in sorted(os.listdir(PDB_DIR)):
                             "chain": chain.id,
                             "resnum": res.id[1]
                         })
+
+        if len(protein_nodes) > 1000:
+            print(f"Skipping {pdb_file}: {len(protein_nodes)} protein residues")
+            continue
+        
         nodes = dna_nodes + protein_nodes
 
         proximity_mask = generate_spatial_proximity_mask(
