@@ -99,7 +99,7 @@ def collate_fn(batch):
 
         mask[i, :n] = True
 
-        adj_mat[i, :n, :n] = graph.adj_mat
+        # adj_mat[i, :n, :n] = graph.adj_mat
 
         edges[i, :n, :n] = graph.edges
 
@@ -124,7 +124,7 @@ def collate_fn(batch):
         "interface": interface,
         "dssr": dssr,
         "mask": mask,
-        "adj_mat": adj_mat,
+        # "adj_mat": adj_mat,
         "edges": edges,
         "pwm_forward": pwm_forward,
         "pwm_reverse": pwm_reverse,

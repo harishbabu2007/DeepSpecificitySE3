@@ -15,7 +15,7 @@ PDB_DIR = "../data/pdbs"
 OUT_DIR = "../data/processed"
 
 RADIUS = 12.0
-K_NEIGHBORS = 32
+K_NEIGHBORS = 16
 RBF_DIM = 16
 RBF_DMAX = 20.0
 INTERFACE_RADIUS = 10.0
@@ -379,7 +379,7 @@ for pdb_file in sorted(os.listdir(PDB_DIR)):
                             "resnum": res.id[1]
                         })
 
-        if len(protein_nodes) > 1000:
+        if len(protein_nodes) > 600:
             print(f"Skipping {pdb_file}: {len(protein_nodes)} protein residues")
             continue
         
@@ -485,10 +485,10 @@ for pdb_file in sorted(os.listdir(PDB_DIR)):
 
         num_nodes = len(nodes)
 
-        adj_mat = torch.zeros(
-            (num_nodes, num_nodes),
-            dtype=torch.bool,
-        )
+        # adj_mat = torch.zeros(
+        #     (num_nodes, num_nodes),
+        #     dtype=torch.bool,
+        # )
 
         edges = torch.zeros(
             (num_nodes, num_nodes, edge_attr.size(1)),
@@ -500,7 +500,7 @@ for pdb_file in sorted(os.listdir(PDB_DIR)):
             src = edge_index[0, k].item()
             dst = edge_index[1, k].item()
 
-            adj_mat[src, dst] = True
+            # adj_mat[src, dst] = True
             edges[src, dst] = edge_attr[k]
 
         chains = [n["chain"] for n in nodes]
@@ -535,7 +535,7 @@ for pdb_file in sorted(os.listdir(PDB_DIR)):
             frame=R_t,
             edge_index=edge_index,
             edge_attr=edge_attr,
-            adj_mat=adj_mat,
+            # adj_mat=adj_mat,
             edges=edges,
             node_type=node_type,
             res_type=res_type,
