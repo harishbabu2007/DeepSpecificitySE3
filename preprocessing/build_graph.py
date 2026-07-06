@@ -1,4 +1,5 @@
 import os
+import glob
 import torch
 import numpy as np
 import json
@@ -54,14 +55,22 @@ def parse_nt_id(nt_string):
     return chain, num
 
 
-def extract_dssr_features(pdb_path):
+def extract_dssr_features(pdb_path, relative=None):
 
-    cmd = [
-        "./x3dna-dssr",
-        "-i=" + pdb_path,
-        "--more",
-        "--json",
-    ]
+    if relative == None:
+        cmd = [
+            "./x3dna-dssr",
+            "-i=" + pdb_path,
+            "--more",
+            "--json",
+        ]
+    else:
+        cmd = [
+            f"./{relative}/x3dna-dssr",
+            "-i=" + pdb_path,
+            "--more",
+            "--json",
+        ]
 
     result = subprocess.run(
         cmd,
@@ -70,6 +79,11 @@ def extract_dssr_features(pdb_path):
     )
 
     data = json.loads(result.stdout)
+    for f in glob.glob("dssr-*"):
+        try:
+            os.remove(f)
+        except OSError:
+            pass
 
     bp_feature = {}
     dssr_feature = {}
@@ -252,320 +266,321 @@ def generate_spatial_proximity_mask(
     return mask
 
 
-parser = PDBParser(QUIET=True)
+if __name__ == "__main__":
+    parser = PDBParser(QUIET=True)
 
-print("Building Offline JASPAR Index for Fallback Search...")
-jaspar_indices = build_jaspar_index()
+    print("Building Offline JASPAR Index for Fallback Search...")
+    jaspar_indices = build_jaspar_index()
 
-# Initialize the JASPAR index ONCE before the loop begins
-print("Loading Motif Annotations.")
-annotations = load_motif_annotations(
-    [
-        "../data/specificity_train.json",
-        "../data/specificity_train_2.json",
-        "../data/specificity_train_3.json",
-        "../data/specificity_evaluation_valid2.json",
-        "../data/specificity_evaluation_valid1.json",
-    ]
-)
-print(f"Loaded {len(annotations)} annotated structures.\n")
-
-for pdb_file in sorted(os.listdir(PDB_DIR)):
-
-    if not pdb_file.endswith(".pdb"):
-        continue
-
-    out_file = os.path.join(
-        OUT_DIR,
-        pdb_file.replace(".pdb", ".pt")
+    # Initialize the JASPAR index ONCE before the loop begins
+    print("Loading Motif Annotations.")
+    annotations = load_motif_annotations(
+        [
+            "../data/specificity_train.json",
+            "../data/specificity_train_2.json",
+            "../data/specificity_train_3.json",
+            "../data/specificity_evaluation_valid2.json",
+            "../data/specificity_evaluation_valid1.json",
+        ]
     )
+    print(f"Loaded {len(annotations)} annotated structures.\n")
 
-    if os.path.exists(out_file):
-        print("Skipping", pdb_file)
-        continue
+    for pdb_file in sorted(os.listdir(PDB_DIR)):
 
-    print("Processing", pdb_file)
-
-    try:
-
-        pdb_path = os.path.join(PDB_DIR, pdb_file)
-        dssr_feature_map = extract_dssr_features(pdb_path)
-
-        structure = parser.get_structure("X", os.path.join(PDB_DIR, pdb_file))
-
-        protein_atoms =[]
-        for model in structure:
-            for chain in model:
-                for res in chain:
-                    if res.get_resname().strip() in PROTEIN_RES:
-                        for atom in res:
-                            protein_atoms.append(atom.coord)
-
-        protein_atoms= np.array(protein_atoms)
-        if len(protein_atoms)>0:
-            protein_tree = cKDTree(protein_atoms)
-        else:
-            protein_tree = None
-
-        nodes = []
-
-        dna_nodes = []
-        protein_nodes = []
-
-        for model in structure:
-            for chain in model:
-
-                residues = list(chain)
-
-                for i, res in enumerate(residues):
-
-                    resname = res.get_resname().strip()
-
-                    prev_res = residues[i - 1] if i > 0 else None
-                    next_res = residues[i + 1] if i < len(residues) - 1 else None
-
-                    # DNA
-                    if resname in DNA_BASE:
-
-                        out = build_dna_frame(res, prev_res, next_res)
-                        if out is None:
-                            continue
-
-                        ref, R = out
-
-                        interface = 0.0
-                        if protein_tree is not None:
-                            dna_atoms = np.array([a.coord for a in res])
-                            dists, _ =protein_tree.query(dna_atoms, k=1)
-                            if np.min(dists) <= INTERFACE_RADIUS:
-                                interface = 1.0
-
-                        resnum = res.id[1]
-                        key = (chain.id, resnum)
-
-                        dssr_feat = dssr_feature_map.get(
-                            key,
-                            np.zeros(18, dtype=np.float32)
-                        )
-
-                        dna_nodes.append({
-                            "ref": ref,
-                            "R": R,
-                            "type": NODE_TYPE["DNA"],
-                            "res_type": DNA_BASE[resname],
-                            "interface": interface,
-                            "dssr_feat": dssr_feat,
-                            "chain": chain.id,
-                            "resnum": res.id[1]
-                        })
-
-                    # PROTEIN
-                    elif resname in PROTEIN_RES:
-
-                        out = build_protein_frame(res)
-                        if out is None:
-                            continue
-
-                        ref, R = out
-
-                        protein_nodes.append({
-                            "ref": ref,
-                            "R": R,
-                            "type": NODE_TYPE["PROTEIN"],
-                            "res_type": PROTEIN_RES[resname],
-                            "interface": 0,
-                            "dssr_feat": np.zeros(18, dtype=np.float32),
-                            "chain": chain.id,
-                            "resnum": res.id[1]
-                        })
-
-        if len(protein_nodes) > 600:
-            print(f"Skipping {pdb_file}: {len(protein_nodes)} protein residues")
-            continue
-        
-        nodes = dna_nodes + protein_nodes
-
-        proximity_mask = generate_spatial_proximity_mask(
-            structure,
-            protein_tree,
-            distance_threshold=4.0,
-        )
-
-        if len(nodes) == 0:
+        if not pdb_file.endswith(".pdb"):
             continue
 
-        pos = np.array([n["ref"] for n in nodes])
-        R = np.array([n["R"] for n in nodes])
-
-        pos_t = torch.tensor(pos, dtype=torch.float)
-        R_t = torch.tensor(R, dtype=torch.float)
-
-        node_type = torch.tensor([n["type"] for n in nodes])
-        res_type = torch.tensor([n["res_type"] for n in nodes])
-        interface = torch.tensor([n["interface"] for n in nodes], dtype=torch.float)
-
-        dssr_feat = torch.tensor(np.array([n["dssr_feat"] for n in nodes]), dtype=torch.float)
-
-        tree = cKDTree(pos)
-        k = min(K_NEIGHBORS+1, len(nodes))
-        dists_knn, idx_knn = tree.query(pos, k=k)
-        # radius_neighbours = tree.query_ball_point(pos, r=RADIUS)
-
-        edge_src, edge_dst = [], []
-        edge_attr = []
-
-        for i in range(len(nodes)):
-
-            nbrs = idx_knn[i][1:]
-
-            for j in nbrs:
-
-                diff = pos[j] - pos[i]
-                d = np.linalg.norm(diff)
-
-                local_vec = R[i] @ diff
-                local_vec = normalize(local_vec)
-
-                rbf = rbf_expand(d)
-
-                R_rel = R[i]@R[j].T
-                rot_feat = R_rel.reshape(-1)
-
-                edge_type = np.zeros(4, dtype=np.float32)
-
-                src_is_dna = nodes[i]["type"] == NODE_TYPE["DNA"]
-                dst_is_dna = nodes[j]["type"] == NODE_TYPE["DNA"]
-
-                if src_is_dna and dst_is_dna:
-                    edge_type[0] = 1.0          # DNA → DNA
-                elif src_is_dna and not dst_is_dna:
-                    edge_type[1] = 1.0          # DNA → Protein
-                elif (not src_is_dna) and dst_is_dna:
-                    edge_type[2] = 1.0          # Protein → DNA
-                else:
-                    edge_type[3] = 1.0          # Protein → Protein
-
-                feat = np.concatenate([rbf, local_vec, rot_feat, edge_type])
-
-                edge_src.append(i)
-                edge_dst.append(j)
-                edge_attr.append(feat)
-
-                # reverse edge
-                local_vec_rev = R[j] @ (-diff)
-                local_vec_rev = normalize(local_vec_rev)
-
-                R_rel_rev = R[j]@R[i].T
-                rot_feat_rev = R_rel_rev.reshape(-1)
-
-                edge_type_rev = np.zeros(4, dtype=np.float32)
-
-                src_is_dna = nodes[j]["type"] == NODE_TYPE["DNA"]
-                dst_is_dna = nodes[i]["type"] == NODE_TYPE["DNA"]
-
-                if src_is_dna and dst_is_dna:
-                    edge_type_rev[0] = 1.0
-                elif src_is_dna and not dst_is_dna:
-                    edge_type_rev[1] = 1.0
-                elif (not src_is_dna) and dst_is_dna:
-                    edge_type_rev[2] = 1.0
-                else:
-                    edge_type_rev[3] = 1.0
-
-                feat_rev = np.concatenate(
-                    [rbf, local_vec_rev, rot_feat_rev, edge_type_rev]
-                )
-
-                edge_src.append(j)
-                edge_dst.append(i)
-                edge_attr.append(feat_rev)
-
-        edge_index = torch.tensor([edge_src, edge_dst], dtype=torch.long)
-        edge_attr = torch.tensor(edge_attr, dtype=torch.float)
-
-        num_nodes = len(nodes)
-
-        # adj_mat = torch.zeros(
-        #     (num_nodes, num_nodes),
-        #     dtype=torch.bool,
-        # )
-
-        edges = torch.zeros(
-            (num_nodes, num_nodes, edge_attr.size(1)),
-            dtype=torch.float32,
+        out_file = os.path.join(
+            OUT_DIR,
+            pdb_file.replace(".pdb", ".pt")
         )
 
-        for k in range(edge_index.size(1)):
-
-            src = edge_index[0, k].item()
-            dst = edge_index[1, k].item()
-
-            # adj_mat[src, dst] = True
-            edges[src, dst] = edge_attr[k]
-
-        chains = [n["chain"] for n in nodes]
-        resnums = [n["resnum"] for n in nodes]
-
-        (
-            pwm_forward,
-            pwm_reverse,
-            pwm_mask_forward,
-            pwm_mask_reverse,
-            proximity_forward,
-            proximity_reverse,
-            pwm_present,
-        ) = generate_training_pwm(
-            structure,
-            pdb_file[:4].lower(),
-            proximity_mask,
-            annotations,
-            jaspar_indices,
-        )
-
-        expected = len(pwm_forward) * 2
-
-        if len(dna_nodes) != expected:
-            print(f"Skipping {pdb_file}: DNA/PWM mismatch")
+        if os.path.exists(out_file):
+            print("Skipping", pdb_file)
             continue
 
-        assert len(dna_nodes) == 2 * len(pwm_forward)
+        print("Processing", pdb_file)
 
-        data = Data(
-            pos=pos_t,
-            frame=R_t,
-            edge_index=edge_index,
-            edge_attr=edge_attr,
-            # adj_mat=adj_mat,
-            edges=edges,
-            node_type=node_type,
-            res_type=res_type,
-            interface=interface,
-            dssr_feat=dssr_feat,
-        )
+        try:
 
-        data.chain = chains
-        data.resnum = torch.tensor(resnums, dtype=torch.long)
-        data.num_dna_nodes = len(dna_nodes)
-        data.num_base_pairs = len(pwm_forward)
-        data.num_protein_nodes = len(protein_nodes)
+            pdb_path = os.path.join(PDB_DIR, pdb_file)
+            dssr_feature_map = extract_dssr_features(pdb_path)
 
-        data.pwm_forward = torch.tensor(pwm_forward, dtype=torch.float32)
-        data.pwm_reverse = torch.tensor(pwm_reverse, dtype=torch.float32)
+            structure = parser.get_structure("X", os.path.join(PDB_DIR, pdb_file))
 
-        data.pwm_mask_forward = torch.tensor(pwm_mask_forward, dtype=torch.bool)
-        data.pwm_mask_reverse = torch.tensor(pwm_mask_reverse, dtype=torch.bool)
+            protein_atoms =[]
+            for model in structure:
+                for chain in model:
+                    for res in chain:
+                        if res.get_resname().strip() in PROTEIN_RES:
+                            for atom in res:
+                                protein_atoms.append(atom.coord)
 
-        data.proximity_forward = torch.tensor(proximity_forward, dtype=torch.bool)
-        data.proximity_reverse = torch.tensor(proximity_reverse, dtype=torch.bool)
+            protein_atoms= np.array(protein_atoms)
+            if len(protein_atoms)>0:
+                protein_tree = cKDTree(protein_atoms)
+            else:
+                protein_tree = None
 
-        data.pwm_present = pwm_present
+            nodes = []
 
-        assert edge_index.shape[1] == len(nodes) * K_NEIGHBORS * 2
-        
-        torch.save(data, out_file)
+            dna_nodes = []
+            protein_nodes = []
 
-    except Exception as e:
-        print(f"ERROR {pdb_file}: {e}")
-        continue
+            for model in structure:
+                for chain in model:
 
-print("Graph construction complete")
+                    residues = list(chain)
+
+                    for i, res in enumerate(residues):
+
+                        resname = res.get_resname().strip()
+
+                        prev_res = residues[i - 1] if i > 0 else None
+                        next_res = residues[i + 1] if i < len(residues) - 1 else None
+
+                        # DNA
+                        if resname in DNA_BASE:
+
+                            out = build_dna_frame(res, prev_res, next_res)
+                            if out is None:
+                                continue
+
+                            ref, R = out
+
+                            interface = 0.0
+                            if protein_tree is not None:
+                                dna_atoms = np.array([a.coord for a in res])
+                                dists, _ =protein_tree.query(dna_atoms, k=1)
+                                if np.min(dists) <= INTERFACE_RADIUS:
+                                    interface = 1.0
+
+                            resnum = res.id[1]
+                            key = (chain.id, resnum)
+
+                            dssr_feat = dssr_feature_map.get(
+                                key,
+                                np.zeros(18, dtype=np.float32)
+                            )
+
+                            dna_nodes.append({
+                                "ref": ref,
+                                "R": R,
+                                "type": NODE_TYPE["DNA"],
+                                "res_type": DNA_BASE[resname],
+                                "interface": interface,
+                                "dssr_feat": dssr_feat,
+                                "chain": chain.id,
+                                "resnum": res.id[1]
+                            })
+
+                        # PROTEIN
+                        elif resname in PROTEIN_RES:
+
+                            out = build_protein_frame(res)
+                            if out is None:
+                                continue
+
+                            ref, R = out
+
+                            protein_nodes.append({
+                                "ref": ref,
+                                "R": R,
+                                "type": NODE_TYPE["PROTEIN"],
+                                "res_type": PROTEIN_RES[resname],
+                                "interface": 0,
+                                "dssr_feat": np.zeros(18, dtype=np.float32),
+                                "chain": chain.id,
+                                "resnum": res.id[1]
+                            })
+
+            if len(protein_nodes) > 600:
+                print(f"Skipping {pdb_file}: {len(protein_nodes)} protein residues")
+                continue
+            
+            nodes = dna_nodes + protein_nodes
+
+            proximity_mask = generate_spatial_proximity_mask(
+                structure,
+                protein_tree,
+                distance_threshold=4.0,
+            )
+
+            if len(nodes) == 0:
+                continue
+
+            pos = np.array([n["ref"] for n in nodes])
+            R = np.array([n["R"] for n in nodes])
+
+            pos_t = torch.tensor(pos, dtype=torch.float)
+            R_t = torch.tensor(R, dtype=torch.float)
+
+            node_type = torch.tensor([n["type"] for n in nodes])
+            res_type = torch.tensor([n["res_type"] for n in nodes])
+            interface = torch.tensor([n["interface"] for n in nodes], dtype=torch.float)
+
+            dssr_feat = torch.tensor(np.array([n["dssr_feat"] for n in nodes]), dtype=torch.float)
+
+            tree = cKDTree(pos)
+            k = min(K_NEIGHBORS+1, len(nodes))
+            dists_knn, idx_knn = tree.query(pos, k=k)
+            # radius_neighbours = tree.query_ball_point(pos, r=RADIUS)
+
+            edge_src, edge_dst = [], []
+            edge_attr = []
+
+            for i in range(len(nodes)):
+
+                nbrs = idx_knn[i][1:]
+
+                for j in nbrs:
+
+                    diff = pos[j] - pos[i]
+                    d = np.linalg.norm(diff)
+
+                    local_vec = R[i] @ diff
+                    local_vec = normalize(local_vec)
+
+                    rbf = rbf_expand(d)
+
+                    R_rel = R[i]@R[j].T
+                    rot_feat = R_rel.reshape(-1)
+
+                    edge_type = np.zeros(4, dtype=np.float32)
+
+                    src_is_dna = nodes[i]["type"] == NODE_TYPE["DNA"]
+                    dst_is_dna = nodes[j]["type"] == NODE_TYPE["DNA"]
+
+                    if src_is_dna and dst_is_dna:
+                        edge_type[0] = 1.0          # DNA → DNA
+                    elif src_is_dna and not dst_is_dna:
+                        edge_type[1] = 1.0          # DNA → Protein
+                    elif (not src_is_dna) and dst_is_dna:
+                        edge_type[2] = 1.0          # Protein → DNA
+                    else:
+                        edge_type[3] = 1.0          # Protein → Protein
+
+                    feat = np.concatenate([rbf, local_vec, rot_feat, edge_type])
+
+                    edge_src.append(i)
+                    edge_dst.append(j)
+                    edge_attr.append(feat)
+
+                    # reverse edge
+                    local_vec_rev = R[j] @ (-diff)
+                    local_vec_rev = normalize(local_vec_rev)
+
+                    R_rel_rev = R[j]@R[i].T
+                    rot_feat_rev = R_rel_rev.reshape(-1)
+
+                    edge_type_rev = np.zeros(4, dtype=np.float32)
+
+                    src_is_dna = nodes[j]["type"] == NODE_TYPE["DNA"]
+                    dst_is_dna = nodes[i]["type"] == NODE_TYPE["DNA"]
+
+                    if src_is_dna and dst_is_dna:
+                        edge_type_rev[0] = 1.0
+                    elif src_is_dna and not dst_is_dna:
+                        edge_type_rev[1] = 1.0
+                    elif (not src_is_dna) and dst_is_dna:
+                        edge_type_rev[2] = 1.0
+                    else:
+                        edge_type_rev[3] = 1.0
+
+                    feat_rev = np.concatenate(
+                        [rbf, local_vec_rev, rot_feat_rev, edge_type_rev]
+                    )
+
+                    edge_src.append(j)
+                    edge_dst.append(i)
+                    edge_attr.append(feat_rev)
+
+            edge_index = torch.tensor([edge_src, edge_dst], dtype=torch.long)
+            edge_attr = torch.tensor(edge_attr, dtype=torch.float)
+
+            num_nodes = len(nodes)
+
+            # adj_mat = torch.zeros(
+            #     (num_nodes, num_nodes),
+            #     dtype=torch.bool,
+            # )
+
+            edges = torch.zeros(
+                (num_nodes, num_nodes, edge_attr.size(1)),
+                dtype=torch.float32,
+            )
+
+            for k in range(edge_index.size(1)):
+
+                src = edge_index[0, k].item()
+                dst = edge_index[1, k].item()
+
+                # adj_mat[src, dst] = True
+                edges[src, dst] = edge_attr[k]
+
+            chains = [n["chain"] for n in nodes]
+            resnums = [n["resnum"] for n in nodes]
+
+            (
+                pwm_forward,
+                pwm_reverse,
+                pwm_mask_forward,
+                pwm_mask_reverse,
+                proximity_forward,
+                proximity_reverse,
+                pwm_present,
+            ) = generate_training_pwm(
+                structure,
+                pdb_file[:4].lower(),
+                proximity_mask,
+                annotations,
+                jaspar_indices,
+            )
+
+            expected = len(pwm_forward) * 2
+
+            if len(dna_nodes) != expected:
+                print(f"Skipping {pdb_file}: DNA/PWM mismatch")
+                continue
+
+            assert len(dna_nodes) == 2 * len(pwm_forward)
+
+            data = Data(
+                pos=pos_t,
+                frame=R_t,
+                edge_index=edge_index,
+                edge_attr=edge_attr,
+                # adj_mat=adj_mat,
+                edges=edges,
+                node_type=node_type,
+                res_type=res_type,
+                interface=interface,
+                dssr_feat=dssr_feat,
+            )
+
+            data.chain = chains
+            data.resnum = torch.tensor(resnums, dtype=torch.long)
+            data.num_dna_nodes = len(dna_nodes)
+            data.num_base_pairs = len(pwm_forward)
+            data.num_protein_nodes = len(protein_nodes)
+
+            data.pwm_forward = torch.tensor(pwm_forward, dtype=torch.float32)
+            data.pwm_reverse = torch.tensor(pwm_reverse, dtype=torch.float32)
+
+            data.pwm_mask_forward = torch.tensor(pwm_mask_forward, dtype=torch.bool)
+            data.pwm_mask_reverse = torch.tensor(pwm_mask_reverse, dtype=torch.bool)
+
+            data.proximity_forward = torch.tensor(proximity_forward, dtype=torch.bool)
+            data.proximity_reverse = torch.tensor(proximity_reverse, dtype=torch.bool)
+
+            data.pwm_present = pwm_present
+
+            assert edge_index.shape[1] == len(nodes) * K_NEIGHBORS * 2
+            
+            torch.save(data, out_file)
+
+        except Exception as e:
+            print(f"ERROR {pdb_file}: {e}")
+            continue
+
+    print("Graph construction complete")
