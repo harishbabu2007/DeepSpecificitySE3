@@ -16,7 +16,7 @@ PDB_DIR = "../data/pdbs"
 OUT_DIR = "../data/processed"
 
 RADIUS = 12.0
-K_NEIGHBORS = 16
+K_NEIGHBORS = 20
 RBF_DIM = 16
 RBF_DMAX = 20.0
 INTERFACE_RADIUS = 10.0

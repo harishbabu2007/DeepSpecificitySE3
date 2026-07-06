@@ -25,7 +25,7 @@ class DeepSpecificitySE3(nn.Module):
             num_degrees=2,
             output_degrees=1,
             edge_dim=32,
-            num_neighbors=16,
+            num_neighbors=20,
             valid_radius=10.0,
             fourier_encode_dist=True,
             attend_self=True,
