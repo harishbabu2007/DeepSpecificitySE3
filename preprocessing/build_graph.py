@@ -394,7 +394,7 @@ if __name__ == "__main__":
                                 "resnum": res.id[1]
                             })
 
-            if len(protein_nodes) > 600:
+            if len(protein_nodes) > 1000:
                 print(f"Skipping {pdb_file}: {len(protein_nodes)} protein residues")
                 continue
             
@@ -403,7 +403,7 @@ if __name__ == "__main__":
             proximity_mask = generate_spatial_proximity_mask(
                 structure,
                 protein_tree,
-                distance_threshold=4.0,
+                distance_threshold=5.0,
             )
 
             if len(nodes) == 0:
